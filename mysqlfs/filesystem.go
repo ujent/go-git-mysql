@@ -3,17 +3,21 @@ package mysqlfs
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/src-d/go-billy.v4"
 	"gopkg.in/src-d/go-billy.v4/helper/chroot"
+	"gopkg.in/src-d/go-billy.v4/util"
 )
 
 //Mysqlfs - realization of billy.Flesystem based on MySQL
 type Mysqlfs struct {
-	storage *storage
+	storage Storage
 }
 
 //New creates an instance of billy.Filesystem
@@ -32,41 +36,115 @@ func New(connectionStr string) (billy.Filesystem, error) {
 // Create creates the named file with mode 0666 (before umask), truncating
 // it if it already exists. If successful, methods on the returned File can
 // be used for I/O; the associated file descriptor has mode O_RDWR.
-func (*Mysqlfs) Create(filename string) (billy.File, error) {
-	return nil, nil
+func (fs *Mysqlfs) Create(filename string) (billy.File, error) {
+	return fs.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 }
 
 // Open opens the named file for reading. If successful, methods on the
 // returned file can be used for reading; the associated file descriptor has
 // mode O_RDONLY.
-func (*Mysqlfs) Open(filename string) (billy.File, error) {
-	return nil, nil
+func (fs *Mysqlfs) Open(filename string) (billy.File, error) {
+	return fs.OpenFile(filename, os.O_RDONLY, 0)
 }
 
 // OpenFile is the generalized open call; most users will use Open or Create
 // instead. It opens the named file with specified flag (O_RDONLY etc.) and
 // perm, (0666 etc.) if applicable. If successful, methods on the returned
 // File can be used for I/O.
+func (fs *Mysqlfs) OpenFile(filename string, flag int, perm os.FileMode) (billy.File, error) {
+	f, err := fs.storage.GetFile(filename)
 
-func (*Mysqlfs) OpenFile(filename string, flag int, perm os.FileMode) (billy.File, error) {
-	return nil, nil
+	if err != nil {
+		return nil, err
+	}
+
+	if f == nil {
+		if !isCreate(flag) {
+			return nil, os.ErrNotExist
+		}
+
+		var err error
+		f, err = fs.storage.NewFile(filename, perm, flag)
+
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if target, isLink := fs.resolveLink(filename, f); isLink {
+			return fs.OpenFile(target, flag, perm)
+		}
+	}
+
+	if f.Mode.IsDir() {
+		return nil, fmt.Errorf("cannot open directory: %s", filename)
+	}
+
+	return f.Duplicate(filename, perm, flag), nil
+}
+
+func (fs *Mysqlfs) resolveLink(fullpath string, f *File) (target string, isLink bool) {
+	if !isSymlink(f.Mode) {
+		return fullpath, false
+	}
+
+	target = string(f.Content)
+	if !isAbs(target) {
+		target = fs.Join(filepath.Dir(fullpath), target)
+	}
+
+	return target, true
+}
+
+// On Windows OS, IsAbs validates if a path is valid based on if stars with a
+// unit (eg.: `C:\`)  to assert that is absolute, but in this mem implementation
+// any path starting by `separator` is also considered absolute.
+func isAbs(path string) bool {
+	return filepath.IsAbs(path) || strings.HasPrefix(path, string(separator))
 }
 
 // Stat returns a FileInfo describing the named file.
-func (*Mysqlfs) Stat(filename string) (os.FileInfo, error) {
-	return nil, nil
+func (fs *Mysqlfs) Stat(filename string) (os.FileInfo, error) {
+	f, err := fs.storage.GetFile(filename)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if f == nil {
+		return nil, os.ErrNotExist
+	}
+
+	fi, err := f.Stat()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if target, isLink := fs.resolveLink(filename, f); isLink {
+		fi, err = fs.Stat(target)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// the name of the file should always the name of the stated file, so we
+	// overwrite the Stat returned from the storage with it, since the
+	// filename may belong to a link.
+	fi.(*FileInfo).FileName = filepath.Base(filename)
+
+	return fi, nil
 }
 
 // Rename renames (moves) oldpath to newpath. If newpath already exists and
 // is not a directory, Rename replaces it. OS-specific restrictions may
 // apply when oldpath and newpath are in different directories.
-func (*Mysqlfs) Rename(oldpath, newpath string) error {
-	return nil
+func (fs *Mysqlfs) Rename(oldpath, newpath string) error {
+	return fs.storage.RenameFile(oldpath, newpath)
 }
 
 // Remove removes the named file or directory.
-func (*Mysqlfs) Remove(filename string) error {
-	return nil
+func (fs *Mysqlfs) Remove(filename string) error {
+	return fs.storage.RemoveFile(filename)
 }
 
 // Join joins any number of path elements into a single path, adding a
@@ -74,7 +152,7 @@ func (*Mysqlfs) Remove(filename string) error {
 // particular, all empty strings are ignored. On Windows, the result is a
 // UNC path if and only if the first path element is a UNC path.
 func (*Mysqlfs) Join(elem ...string) string {
-	return ""
+	return filepath.Join(elem...)
 }
 
 // TempFile creates a new temporary file in the directory dir with a name
@@ -85,53 +163,104 @@ func (*Mysqlfs) Join(elem ...string) string {
 // same file. The caller can use f.Name() to find the pathname of the file.
 // It is the caller's responsibility to remove the file when no longer
 // needed.
-func (*Mysqlfs) TempFile(dir, prefix string) (billy.File, error) {
-	return nil, nil
+func (fs *Mysqlfs) TempFile(dir, prefix string) (billy.File, error) {
+	return util.TempFile(fs, dir, prefix)
 }
 
 // ReadDir reads the directory named by dirname and returns a list of
 // directory entries sorted by filename.
-func (*Mysqlfs) ReadDir(path string) ([]os.FileInfo, error) {
-	return nil, nil
+func (fs *Mysqlfs) ReadDir(path string) ([]os.FileInfo, error) {
+	f, err := fs.storage.GetFile(path)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if f != nil {
+		if target, isLink := fs.resolveLink(path, f); isLink {
+			return fs.ReadDir(target)
+		}
+	}
+
+	var entries []os.FileInfo
+	children, err := fs.storage.Children(path)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, f := range children {
+		fi, _ := f.Stat()
+		entries = append(entries, fi)
+	}
+
+	return entries, nil
 }
 
 // MkdirAll creates a directory named path, along with any necessary
 // parents, and returns nil, or else returns an error. The permission bits
 // perm are used for all directories that MkdirAll creates. If path is/
 // already a directory, MkdirAll does nothing and returns nil.
-func MkdirAll(filename string, perm os.FileMode) error {
-	return nil
+func (fs *Mysqlfs) MkdirAll(path string, perm os.FileMode) error {
+	_, err := fs.storage.NewFile(path, perm|os.ModeDir, 0)
+
+	return err
 }
 
 // Lstat returns a FileInfo describing the named file. If the file is a
 // symbolic link, the returned FileInfo describes the symbolic link. Lstat
 // makes no attempt to follow the link.
-func (*Mysqlfs) Lstat(filename string) (os.FileInfo, error) {
-	return nil, nil
+func (fs *Mysqlfs) Lstat(filename string) (os.FileInfo, error) {
+	f, err := fs.storage.GetFile(filename)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if f == nil {
+		return nil, os.ErrNotExist
+	}
+
+	return f.Stat()
 }
 
 // Symlink creates a symbolic-link from link to target. target may be an
 // absolute or relative path, and need not refer to an existing node.
 // Parent directories of link are created as necessary.
-func (*Mysqlfs) Symlink(target, link string) error {
-	return nil
+func (fs *Mysqlfs) Symlink(target, link string) error {
+	_, err := fs.Stat(link)
+	if err == nil {
+		return os.ErrExist
+	}
+
+	if !os.IsNotExist(err) {
+		return err
+	}
+
+	return util.WriteFile(fs, link, []byte(target), 0777|os.ModeSymlink)
 }
 
 // Readlink returns the target path of link.
-func (*Mysqlfs) Readlink(link string) (string, error) {
-	return "", nil
-}
+func (fs *Mysqlfs) Readlink(link string) (string, error) {
+	f, err := fs.storage.GetFile(link)
 
-// Chroot returns a new filesystem from the same type where the new root is
-// the given path. Files outside of the designated directory tree cannot be
-// accessed.
-func (*Mysqlfs) Chroot(path string) (billy.Filesystem, error) {
-	return nil, nil
-}
+	if err != nil {
+		return "", err
+	}
 
-// Root returns the root path of the filesystem.
-func (*Mysqlfs) Root() string {
-	return ""
+	if f == nil {
+		return "", os.ErrNotExist
+	}
+
+	if !isSymlink(f.Mode) {
+		return "", &os.PathError{
+			Op:   "readlink",
+			Path: link,
+			Err:  fmt.Errorf("not a symlink"),
+		}
+	}
+
+	return string(f.Content), nil
 }
 
 // Capabilities implements the Capable interface.
@@ -143,6 +272,7 @@ func (fs *Mysqlfs) Capabilities() billy.Capability {
 		billy.TruncateCapability
 }
 
+// Name - return file name
 func (f *File) Name() string {
 	return f.FileName
 }
@@ -158,6 +288,9 @@ func (f *File) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// ReadAt reads len(p) bytes into p starting at offset off in the
+// underlying input source. It returns the number of bytes
+// read (0 <= n <= len(p)) and any error encountered.
 func (f *File) ReadAt(b []byte, off int64) (int, error) {
 	if f.IsClosed {
 		return 0, os.ErrClosed
@@ -192,10 +325,13 @@ func readAt(content []byte, b []byte, off int64) (n int, err error) {
 	return
 }
 
-func writeAt(content []byte, p []byte, off int64) (int, error) {
+func writeAt(f *File, p []byte) int {
+	content := f.Content
 	prev := len(content)
+	off := f.Position
 
 	diff := int(off) - prev
+
 	if diff > 0 {
 		content = append(content, make([]byte, diff)...)
 	}
@@ -205,13 +341,16 @@ func writeAt(content []byte, p []byte, off int64) (int, error) {
 		content = content[:prev]
 	}
 
-	return len(p), nil
+	return len(p)
 }
 
-func saveFileToDb() error {
-	return nil
-}
-
+// Seek sets the offset for the next Read or Write to offset,
+// interpreted according to whence:
+// SeekStart means relative to the start of the file,
+// SeekCurrent means relative to the current offset, and
+// SeekEnd means relative to the end.
+// Seek returns the new offset relative to the start of the
+// file and an error, if any.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
 	if f.IsClosed {
 		return 0, os.ErrClosed
@@ -238,21 +377,30 @@ func (f *File) Write(p []byte) (int, error) {
 		return 0, errors.New("write not supported")
 	}
 
-	n, err := writeAt(f.Content, p, f.Position)
+	n := writeAt(f, p)
 	f.Position += int64(n)
 
-	return n, err
+	return n, nil
 }
 
+// Close - implementation of the basic Close method.
 func (f *File) Close() error {
 	if f.IsClosed {
 		return os.ErrClosed
 	}
 
 	f.IsClosed = true
+
+	err := f.storage.UpdateFileContent(f.ID, f.Content)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
+// Truncate the file
 func (f *File) Truncate(size int64) error {
 	if size < int64(len(f.Content)) {
 		f.Content = f.Content[:size]
@@ -263,6 +411,7 @@ func (f *File) Truncate(size int64) error {
 	return nil
 }
 
+//ToDo - what to do with it?
 func (f *File) Duplicate(filename string, mode os.FileMode, flag int) billy.File {
 	new := &File{
 		FileName: filename,
@@ -282,6 +431,7 @@ func (f *File) Duplicate(filename string, mode os.FileMode, flag int) billy.File
 	return new
 }
 
+//Stat - get FileInfo from File
 func (f *File) Stat() (os.FileInfo, error) {
 	return &FileInfo{
 		FileName: f.Name(),
@@ -290,12 +440,12 @@ func (f *File) Stat() (os.FileInfo, error) {
 	}, nil
 }
 
-// Lock is a no-op in memfs.
+// Lock is a no-op in db
 func (f *File) Lock() error {
 	return nil
 }
 
-// Unlock is a no-op in memfs.
+// Unlock is a no-op in db
 func (f *File) Unlock() error {
 	return nil
 }

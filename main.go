@@ -1,18 +1,17 @@
 package main
 
 import (
-	_ "database/sql"
+	"database/sql"
 	"fmt"
 	"log"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	"github.com/ujent/go-git-mysql/mysqlfs"
 )
 
 //var schema = "CREATE TABLE `files2` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `ParentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `position` bigint, `flag` TINYINT, `mode` TINYINT, `content` BINARY)"
 
-var schema = "CREATE TABLE `files3` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `ParentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `position` bigint, `flag` TINYINT, `mode` TINYINT, `content` LONGBLOB)"
+var schema = "CREATE TABLE `files4` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `parentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `flag` TINYINT, `mode` TINYINT, `content` LONGBLOB)"
 
 func main() {
 
@@ -22,30 +21,45 @@ func main() {
 	}
 	defer db.Close()
 
+	//db.MustExec(schema)
+
+	parentID := int64(0)
+	err = db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", "files4"), "path/file.txt")
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Fatal("empty")
+		} else {
+			log.Fatal(err)
+		}
+	}
+
+	fmt.Print(parentID)
+
 	//TODO - insert table "files"
 	//db.MustExec(schema)
 
-	f := &mysqlfs.FileDB{
-		Name:    "file.txt",
-		Path:    "path/file.txt",
-		Content: []byte{},
-		Mode:    2,
-		Flag:    1,
-	}
+	// f := &mysqlfs.FileDB{
+	// 	Name:    "file.txt",
+	// 	Path:    "path/file.txt",
+	// 	Content: []byte{},
+	// 	Mode:    2,
+	// 	Flag:    1,
+	// }
 
-	//log.Println(fmt.Sprintf("INSERT INTO %s(name,path,content,mode,flag) VALUES(%s,%s,%d,%d,%d)", "files2", f.Name, f.Path, f.Content, f.Mode, f.Flag))
-	stmtIns, err := db.Prepare(fmt.Sprintf("INSERT INTO %s(name,path,mode,flag, content) VALUES(?,?,?,?,?)", "files3"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	// stmt, err := db.Prepare(fmt.Sprintf("INSERT INTO %s(name,path,mode,flag, content) VALUES(?,?,?,?,?)", "files4"))
 
-	defer stmtIns.Close()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	_, err = stmtIns.Exec(f.Name, f.Path, f.Mode, f.Flag, f.Content)
+	// defer stmt.Close()
 
-	if err != nil {
-		log.Fatal(err)
-	}
+	// _, err = stmt.Exec(f.Name, f.Path, f.Mode, f.Flag, f.Content)
+
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 	// query
 
 	// rows, err := db.Query("select id, name from test")

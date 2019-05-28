@@ -15,12 +15,9 @@ const fileTableName = "file"
 
 type storage struct {
 	db *sqlx.DB
-
-	files    map[string]*FileDB
-	children map[string]map[string]*FileDB
 }
 
-func newStorage(connectionStr string) (*storage, error) {
+func newStorage(connectionStr string) (Storage, error) {
 	db, err := sqlx.Connect("mysql", connectionStr)
 
 	if err != nil {
@@ -30,27 +27,11 @@ func newStorage(connectionStr string) (*storage, error) {
 	return &storage{db: db}, nil
 }
 
-func (s *storage) HasFile(path string) (bool, error) {
-	path = clean(path)
-
-	err := s.db.QueryRow(fmt.Sprintf("select p.id from %s as p where p.path = %s;", fileTableName, path)).Scan()
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (s *storage) GetFile(path string) (*FileDB, error) {
+func (s *storage) GetFile(path string) (*File, error) {
 	path = clean(path)
 	f := FileDB{}
 
-	err := s.db.Get(&f, "select p from $1 as p where p.path = $2", fileTableName, path)
+	err := s.db.Get(&f, fmt.Sprintf("SELECT * FROM %s WHERE path = ?", fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -60,10 +41,27 @@ func (s *storage) GetFile(path string) (*FileDB, error) {
 		return nil, err
 	}
 
-	return &f, nil
+	return fileDBtoFile(&f), nil
 }
 
-func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*FileDB, error) {
+func (s *storage) getFileID(path string) (int64, error) {
+	path = clean(path)
+	id := int64(0)
+
+	err := s.db.Get(&id, fmt.Sprintf("SELECT id FROM %s WHERE path = ?", fileTableName), path)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error) {
 	path = clean(path)
 	f, err := s.GetFile(path)
 
@@ -79,12 +77,13 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*FileDB, err
 		return nil, nil
 	}
 
-	f = &FileDB{
-		Name:    filepath.Base(path),
-		Path:    path,
-		Content: []byte{},
-		Mode:    mode,
-		Flag:    flag,
+	f = &File{
+		FileName: filepath.Base(path),
+		Path:     path,
+		Content:  []byte{},
+		Mode:     mode,
+		Flag:     flag,
+		storage:  s,
 	}
 
 	//ToDo create parent (?)
@@ -95,103 +94,219 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*FileDB, err
 
 	defer stmtIns.Close()
 
-	_, err = stmtIns.Exec(f.Name, f.Path, f.Mode, f.Flag, f.Content)
+	res, err := stmtIns.Exec(f.FileName, f.Path, f.Mode, f.Flag, f.Content)
 
 	if err != nil {
 		return nil, err
 	}
 
-	s.createParent(path, mode, f)
+	id, err := res.LastInsertId()
+
+	if err != nil {
+		return nil, err
+	}
+
+	f.ID = id
+	s.createParentAddToFile(path, mode, f)
+
 	return f, nil
 }
 
-func (s *storage) createParent(path string, mode os.FileMode, f *FileDB) error {
+func (s *storage) createParent(path string, mode os.FileMode, f *File) (*File, error) {
 	base := filepath.Dir(path)
 	base = clean(base)
-	if f.Name == string(separator) {
+
+	if f.FileName == string(separator) {
+		return nil, nil
+	}
+
+	parent, err := s.NewFile(base, mode.Perm()|os.ModeDir, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return parent, nil
+}
+
+func (s *storage) createParentAddToFile(path string, mode os.FileMode, f *File) error {
+	parent, err := s.createParent(path, mode, f)
+
+	if err != nil {
+		return err
+	}
+
+	if parent == nil {
 		return nil
 	}
 
-	if _, err := s.NewFile(base, mode.Perm()|os.ModeDir, 0); err != nil {
+	f.ParentID = parent.ID
+
+	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET parentID=? WHERE id=?", fileTableName))
+	if err != nil {
 		return err
 	}
 
-	if _, ok := s.children[base]; !ok {
-		s.children[base] = make(map[string]*FileDB, 0)
+	defer stmt.Close()
+
+	_, err = stmt.Exec(parent.ID, f.ID)
+
+	if err != nil {
+		return err
 	}
 
-	s.children[base][f.Name] = f
 	return nil
 }
 
-func (s *storage) Children(path string) []*FileDB {
+func (s *storage) Children(path string) ([]*File, error) {
 	path = clean(path)
+	parentID := int64(0)
 
-	l := make([]*FileDB, 0)
-	for _, f := range s.children[path] {
-		l = append(l, f)
+	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", fileTableName), path)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return []*File{}, nil
+		}
+		return nil, err
 	}
 
-	return l
+	return s.ChildrenByFileID(parentID)
+}
+func (s *storage) ChildrenIds(path string) ([]int64, error) {
+	path = clean(path)
+	parentID := int64(0)
+
+	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", fileTableName), path)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return []int64{}, nil
+		}
+		return nil, err
+	}
+
+	return s.ChildrenIdsByFileID(parentID)
 }
 
-func (s *storage) MustGetFile(path string) (*FileDB, error) {
-	f, err := s.GetFile(path)
+func (s *storage) ChildrenByFileID(id int64) ([]*File, error) {
+	resDB := []FileDB{}
+	err := s.db.Select(&resDB, fmt.Sprintf("SELECT * FROM %s WHERE parentID=?", fileTableName), id)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return f, nil
+	res := make([]*File, 0)
+	for _, fDB := range resDB {
+		f := fileDBtoFile(&fDB)
+		res = append(res, f)
+	}
+
+	return res, nil
 }
 
-func (s *storage) Get(path string) (*FileDB, bool, error) {
-	path = clean(path)
-	hasPath, err := s.HasFile(path)
+func (s *storage) ChildrenIdsByFileID(id int64) ([]int64, error) {
+	res := []int64{}
+	err := s.db.Select(&res, fmt.Sprintf("SELECT id FROM %s WHERE parentID=?", fileTableName), id)
 
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
-	if !hasPath {
-		return nil, false, nil
-	}
-
-	file, ok := s.files[path]
-	return file, ok, nil
+	return res, nil
 }
 
-func (s *storage) Rename(from, to string) error {
+func (s *storage) RenameFile(from, to string) error {
 	from = clean(from)
 	to = clean(to)
-	hasPath, err := s.HasFile(from)
+	f, err := s.GetFile(from)
 
 	if err != nil {
 		return err
 	}
 
-	if !hasPath {
+	if f == nil {
 		return os.ErrNotExist
 	}
 
-	move := [][2]string{{from, to}}
+	newName := filepath.Base(to)
 
-	for pathFrom := range s.files {
-		if pathFrom == from || !filepath.HasPrefix(pathFrom, from) {
-			continue
+	if f.Mode.IsDir() {
+
+		children, err := s.ChildrenByFileID(f.ID)
+		if err != nil {
+			return err
 		}
 
-		rel, _ := filepath.Rel(from, pathFrom)
-		pathTo := filepath.Join(to, rel)
+		tx := s.db.MustBegin()
+		tx.MustExec(fmt.Sprintf("UPDATE %s SET name=?, path=? WHERE id=?", fileTableName), newName, to)
 
-		move = append(move, [2]string{pathFrom, pathTo})
-	}
+		if len(children) != 0 {
+			for _, c := range children {
+				tx.MustExec(fmt.Sprintf("UPDATE %s SET path=? WHERE id=?", fileTableName), filepath.Join(to, c.FileName), c.ID)
+			}
+		}
 
-	for _, ops := range move {
-		from := ops[0]
-		to := ops[1]
+		err = tx.Commit()
 
-		if err := s.move(from, to); err != nil {
+		if err != nil {
+			return err
+		}
+
+	} else {
+		newParentID, err := s.getFileID(filepath.Dir(to))
+
+		if err != nil {
+			return err
+		}
+
+		if newParentID != 0 {
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+
+			if err != nil {
+				return err
+			}
+
+			defer stmt.Close()
+
+			_, err = stmt.Exec(newName, to, newParentID, f.ID)
+
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+
+		newParent, err := s.createParent(to, 0644, f)
+
+		if err != nil {
+			return err
+		}
+
+		if newParent == nil {
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+
+			if err != nil {
+				return err
+			}
+
+			defer stmt.Close()
+
+			_, err = stmt.Exec(newName, to, nil, f.ID)
+		} else {
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+
+			if err != nil {
+				return err
+			}
+
+			defer stmt.Close()
+
+			_, err = stmt.Exec(newName, to, newParent.ID, f.ID)
+		}
+
+		if err != nil {
 			return err
 		}
 	}
@@ -199,42 +314,44 @@ func (s *storage) Rename(from, to string) error {
 	return nil
 }
 
-func (s *storage) move(from, to string) error {
-	s.files[to] = s.files[from]
-	s.files[to].Name = filepath.Base(to)
-	s.children[to] = s.children[from]
-
-	defer func() {
-		delete(s.children, from)
-		delete(s.files, from)
-		delete(s.children[filepath.Dir(from)], filepath.Base(from))
-	}()
-
-	return s.createParent(to, 0644, s.files[to])
-}
-
-func (s *storage) Remove(path string) error {
+func (s *storage) RemoveFile(path string) error {
 	path = clean(path)
 
-	f, has, err := s.Get(path)
+	f, err := s.GetFile(path)
 
 	if err != nil {
 		return err
 	}
 
-	if !has {
+	if f == nil {
 		return os.ErrNotExist
 	}
 
-	if f.Mode.IsDir() && len(s.children[path]) != 0 {
+	childrenIds, err := s.ChildrenIdsByFileID(f.ID)
+
+	if err != nil {
+		return err
+	}
+
+	childrenIdsLen := len(childrenIds)
+
+	if f.Mode.IsDir() && childrenIdsLen != 0 {
 		return fmt.Errorf("dir: %s contains files", path)
 	}
 
-	base, file := filepath.Split(path)
-	base = filepath.Clean(base)
+	stmt, err := s.db.Prepare(fmt.Sprintf("DELETE FROM %s where id=?", fileTableName))
+	if err != nil {
+		return err
+	}
 
-	delete(s.children[base], file)
-	delete(s.files, path)
+	defer stmt.Close()
+
+	_, err = stmt.Exec(f.ID)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -243,5 +360,39 @@ func clean(path string) string {
 }
 
 func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
+	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET content=? WHERE id=?", fileTableName))
+	if err != nil {
+		return err
+	}
+
+	defer stmt.Close()
+
+	_, err = stmt.Exec(content, fileID)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func fileDBtoFile(f *FileDB) *File {
+	if f == nil {
+		return nil
+	}
+
+	var parID int64
+	if f.ParentID.Valid {
+		parID = f.ParentID.Int64
+	}
+
+	return &File{
+		ID:       f.ID,
+		FileName: f.Name,
+		ParentID: parID,
+		Path:     f.Path,
+		Content:  f.Content,
+		Flag:     f.Flag,
+		Mode:     f.Mode,
+	}
 }
