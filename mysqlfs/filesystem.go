@@ -411,7 +411,6 @@ func (f *File) Truncate(size int64) error {
 	return nil
 }
 
-//ToDo - what to do with it?
 func (f *File) Duplicate(filename string, mode os.FileMode, flag int) billy.File {
 	new := &File{
 		FileName: filename,
@@ -472,30 +471,6 @@ func (fi *FileInfo) IsDir() bool {
 
 func (*FileInfo) Sys() interface{} {
 	return nil
-}
-
-func isCreate(flag int) bool {
-	return flag&os.O_CREATE != 0
-}
-
-func isAppend(flag int) bool {
-	return flag&os.O_APPEND != 0
-}
-
-func isTruncate(flag int) bool {
-	return flag&os.O_TRUNC != 0
-}
-
-func isReadAndWrite(flag int) bool {
-	return flag&os.O_RDWR != 0
-}
-
-func isReadOnly(flag int) bool {
-	return flag == os.O_RDONLY
-}
-
-func isWriteOnly(flag int) bool {
-	return flag&os.O_WRONLY != 0
 }
 
 func isSymlink(m os.FileMode) bool {

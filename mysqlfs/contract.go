@@ -8,6 +8,7 @@ import (
 type Storage interface {
 	NewFile(path string, mode os.FileMode, flag int) (*File, error)
 	GetFile(path string) (*File, error)
+	GetFileID(path string) (int64, error)
 	RenameFile(from, to string) error
 	RemoveFile(path string) error
 	Children(path string) ([]*File, error)

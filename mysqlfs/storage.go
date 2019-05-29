@@ -44,7 +44,7 @@ func (s *storage) GetFile(path string) (*File, error) {
 	return fileDBtoFile(&f), nil
 }
 
-func (s *storage) getFileID(path string) (int64, error) {
+func (s *storage) GetFileID(path string) (int64, error) {
 	path = clean(path)
 	id := int64(0)
 
@@ -86,7 +86,6 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 		storage:  s,
 	}
 
-	//ToDo create parent (?)
 	stmtIns, err := s.db.Prepare(fmt.Sprintf("INSERT INTO %s(name,path,mode,flag, content) VALUES(?,?,?,?,?)", fileTableName))
 	if err != nil {
 		return nil, err
@@ -112,51 +111,6 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 	return f, nil
 }
 
-func (s *storage) createParent(path string, mode os.FileMode, f *File) (*File, error) {
-	base := filepath.Dir(path)
-	base = clean(base)
-
-	if f.FileName == string(separator) {
-		return nil, nil
-	}
-
-	parent, err := s.NewFile(base, mode.Perm()|os.ModeDir, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	return parent, nil
-}
-
-func (s *storage) createParentAddToFile(path string, mode os.FileMode, f *File) error {
-	parent, err := s.createParent(path, mode, f)
-
-	if err != nil {
-		return err
-	}
-
-	if parent == nil {
-		return nil
-	}
-
-	f.ParentID = parent.ID
-
-	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET parentID=? WHERE id=?", fileTableName))
-	if err != nil {
-		return err
-	}
-
-	defer stmt.Close()
-
-	_, err = stmt.Exec(parent.ID, f.ID)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (s *storage) Children(path string) ([]*File, error) {
 	path = clean(path)
 	parentID := int64(0)
@@ -172,6 +126,7 @@ func (s *storage) Children(path string) ([]*File, error) {
 
 	return s.ChildrenByFileID(parentID)
 }
+
 func (s *storage) ChildrenIds(path string) ([]int64, error) {
 	path = clean(path)
 	parentID := int64(0)
@@ -254,7 +209,7 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 	} else {
-		newParentID, err := s.getFileID(filepath.Dir(to))
+		newParentID, err := s.GetFileID(filepath.Dir(to))
 
 		if err != nil {
 			return err
@@ -355,10 +310,6 @@ func (s *storage) RemoveFile(path string) error {
 	return nil
 }
 
-func clean(path string) string {
-	return filepath.Clean(filepath.FromSlash(path))
-}
-
 func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
 	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET content=? WHERE id=?", fileTableName))
 	if err != nil {
@@ -368,6 +319,51 @@ func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
 	defer stmt.Close()
 
 	_, err = stmt.Exec(content, fileID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *storage) createParent(path string, mode os.FileMode, f *File) (*File, error) {
+	base := filepath.Dir(path)
+	base = clean(base)
+
+	if f.FileName == string(separator) {
+		return nil, nil
+	}
+
+	parent, err := s.NewFile(base, mode.Perm()|os.ModeDir, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return parent, nil
+}
+
+func (s *storage) createParentAddToFile(path string, mode os.FileMode, f *File) error {
+	parent, err := s.createParent(path, mode, f)
+
+	if err != nil {
+		return err
+	}
+
+	if parent == nil {
+		return nil
+	}
+
+	f.ParentID = parent.ID
+
+	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET parentID=? WHERE id=?", fileTableName))
+	if err != nil {
+		return err
+	}
+
+	defer stmt.Close()
+
+	_, err = stmt.Exec(parent.ID, f.ID)
 
 	if err != nil {
 		return err
@@ -395,4 +391,8 @@ func fileDBtoFile(f *FileDB) *File {
 		Flag:     f.Flag,
 		Mode:     f.Mode,
 	}
+}
+
+func clean(path string) string {
+	return filepath.Clean(filepath.FromSlash(path))
 }
