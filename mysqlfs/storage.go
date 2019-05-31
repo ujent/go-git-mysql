@@ -41,7 +41,7 @@ func (s *storage) GetFile(path string) (*File, error) {
 		return nil, err
 	}
 
-	return fileDBtoFile(&f), nil
+	return fileDBtoFile(&f, s), nil
 }
 
 func (s *storage) GetFileID(path string) (int64, error) {
@@ -63,6 +63,7 @@ func (s *storage) GetFileID(path string) (int64, error) {
 
 func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error) {
 	path = clean(path)
+
 	f, err := s.GetFile(path)
 
 	if err != nil {
@@ -77,12 +78,20 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 		return nil, nil
 	}
 
+	fDB := &FileDB{
+		Name:    filepath.Base(path),
+		Path:    path,
+		Content: []byte{},
+		Mode:    int64(mode),
+		Flag:    flag,
+	}
+
 	f = &File{
-		FileName: filepath.Base(path),
-		Path:     path,
-		Content:  []byte{},
+		FileName: fDB.Name,
+		Path:     fDB.Path,
+		Content:  fDB.Content,
 		Mode:     mode,
-		Flag:     flag,
+		Flag:     fDB.Flag,
 		storage:  s,
 	}
 
@@ -93,7 +102,7 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 
 	defer stmtIns.Close()
 
-	res, err := stmtIns.Exec(f.FileName, f.Path, f.Mode, f.Flag, f.Content)
+	res, err := stmtIns.Exec(fDB.Name, fDB.Path, fDB.Mode, fDB.Flag, fDB.Content)
 
 	if err != nil {
 		return nil, err
@@ -106,7 +115,12 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 	}
 
 	f.ID = id
-	s.createParentAddToFile(path, mode, f)
+
+	err = s.CreateParentAddToFile(path, mode, f)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return f, nil
 }
@@ -153,7 +167,7 @@ func (s *storage) ChildrenByFileID(id int64) ([]*File, error) {
 
 	res := make([]*File, 0)
 	for _, fDB := range resDB {
-		f := fileDBtoFile(&fDB)
+		f := fileDBtoFile(&fDB, s)
 		res = append(res, f)
 	}
 
@@ -194,7 +208,7 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 		tx := s.db.MustBegin()
-		tx.MustExec(fmt.Sprintf("UPDATE %s SET name=?, path=? WHERE id=?", fileTableName), newName, to)
+		tx.MustExec(fmt.Sprintf("UPDATE %s SET name=?, path=? WHERE id=?", fileTableName), newName, to, f.ID)
 
 		if len(children) != 0 {
 			for _, c := range children {
@@ -233,7 +247,7 @@ func (s *storage) RenameFile(from, to string) error {
 			return nil
 		}
 
-		newParent, err := s.createParent(to, 0644, f)
+		newParent, err := createParent(s, to, 0644)
 
 		if err != nil {
 			return err
@@ -327,24 +341,34 @@ func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
 	return nil
 }
 
-func (s *storage) createParent(path string, mode os.FileMode, f *File) (*File, error) {
+func createParent(s Storage, path string, mode os.FileMode) (*File, error) {
 	base := filepath.Dir(path)
 	base = clean(base)
 
-	if f.FileName == string(separator) {
+	if base == string(separator) {
+
 		return nil, nil
 	}
 
 	parent, err := s.NewFile(base, mode.Perm()|os.ModeDir, 0)
+
 	if err != nil {
 		return nil, err
+	}
+
+	if parent == nil {
+		parent, err = s.GetFile(base)
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return parent, nil
 }
 
-func (s *storage) createParentAddToFile(path string, mode os.FileMode, f *File) error {
-	parent, err := s.createParent(path, mode, f)
+func (s *storage) CreateParentAddToFile(path string, mode os.FileMode, f *File) error {
+	parent, err := createParent(s, path, mode)
 
 	if err != nil {
 		return err
@@ -372,7 +396,7 @@ func (s *storage) createParentAddToFile(path string, mode os.FileMode, f *File) 
 	return nil
 }
 
-func fileDBtoFile(f *FileDB) *File {
+func fileDBtoFile(f *FileDB, s *storage) *File {
 	if f == nil {
 		return nil
 	}
@@ -389,7 +413,8 @@ func fileDBtoFile(f *FileDB) *File {
 		Path:     f.Path,
 		Content:  f.Content,
 		Flag:     f.Flag,
-		Mode:     f.Mode,
+		Mode:     os.FileMode(f.Mode),
+		storage: s,
 	}
 }
 

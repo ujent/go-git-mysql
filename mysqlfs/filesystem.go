@@ -69,6 +69,7 @@ func (fs *Mysqlfs) OpenFile(filename string, flag int, perm os.FileMode) (billy.
 		if err != nil {
 			return nil, err
 		}
+
 	} else {
 		if target, isLink := fs.resolveLink(filename, f); isLink {
 			return fs.OpenFile(target, flag, perm)
@@ -79,7 +80,7 @@ func (fs *Mysqlfs) OpenFile(filename string, flag int, perm os.FileMode) (billy.
 		return nil, fmt.Errorf("cannot open directory: %s", filename)
 	}
 
-	return f.Duplicate(filename, perm, flag), nil
+	return f.Duplicate(perm, flag), nil
 }
 
 func (fs *Mysqlfs) resolveLink(fullpath string, f *File) (target string, isLink bool) {
@@ -291,7 +292,7 @@ func (f *File) Read(b []byte) (int, error) {
 // ReadAt reads len(p) bytes into p starting at offset off in the
 // underlying input source. It returns the number of bytes
 // read (0 <= n <= len(p)) and any error encountered.
-func (f *File) ReadAt(b []byte, off int64) (int, error) {
+func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 	if f.IsClosed {
 		return 0, os.ErrClosed
 	}
@@ -300,13 +301,7 @@ func (f *File) ReadAt(b []byte, off int64) (int, error) {
 		return 0, errors.New("read not supported")
 	}
 
-	n, err := readAt(f.Content, b, off)
-
-	return n, err
-}
-
-func readAt(content []byte, b []byte, off int64) (n int, err error) {
-	size := int64(len(content))
+	size := int64(len(f.Content))
 	if off >= size {
 		return 0, io.EOF
 	}
@@ -316,29 +311,29 @@ func readAt(content []byte, b []byte, off int64) (n int, err error) {
 		l = size - off
 	}
 
-	btr := content[off : off+l]
+	btr := f.Content[off : off+l]
 	if len(btr) < len(b) {
 		err = io.EOF
 	}
 	n = copy(b, btr)
 
-	return
+	return n, err
 }
 
-func writeAt(f *File, p []byte) int {
-	content := f.Content
-	prev := len(content)
+
+func(f *File) WriteAt(p []byte) int {
 	off := f.Position
+	prev := len(f.Content)
 
 	diff := int(off) - prev
 
 	if diff > 0 {
-		content = append(content, make([]byte, diff)...)
+		f.Content = append(f.Content, make([]byte, diff)...)
 	}
 
-	content = append(content[:off], p...)
-	if len(content) < prev {
-		content = content[:prev]
+	f.Content = append(f.Content[:off], p...)
+	if len(f.Content) < prev {
+		f.Content = f.Content[:prev]
 	}
 
 	return len(p)
@@ -377,7 +372,7 @@ func (f *File) Write(p []byte) (int, error) {
 		return 0, errors.New("write not supported")
 	}
 
-	n := writeAt(f, p)
+	n := f.WriteAt(p)
 	f.Position += int64(n)
 
 	return n, nil
@@ -411,12 +406,17 @@ func (f *File) Truncate(size int64) error {
 	return nil
 }
 
-func (f *File) Duplicate(filename string, mode os.FileMode, flag int) billy.File {
+func (f *File) Duplicate(mode os.FileMode, flag int) billy.File {
 	new := &File{
-		FileName: filename,
+		ID: f.ID,
+		ParentID: f.ParentID,
+		FileName: f.Name(),
+		Path: f.Path,
+		Position: f.Position,
 		Content:  f.Content,
 		Mode:     mode,
 		Flag:     flag,
+		storage: f.storage, 
 	}
 
 	if isAppend(flag) {
