@@ -21,8 +21,12 @@ type Mysqlfs struct {
 }
 
 //New creates an instance of billy.Filesystem
-func New(connectionStr string) (billy.Filesystem, error) {
-	storage, err := newStorage(connectionStr)
+func New(connectionStr string, folderName string) (billy.Filesystem, error) {
+	if folderName == "" {
+		return nil, errors.New("Folder name can't be empty")
+	}
+
+	storage, err := newStorage(connectionStr, folderName)
 
 	if err != nil {
 		return nil, err
@@ -320,8 +324,7 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 	return n, err
 }
 
-
-func(f *File) WriteAt(p []byte) int {
+func (f *File) WriteAt(p []byte) int {
 	off := f.Position
 	prev := len(f.Content)
 
@@ -408,15 +411,15 @@ func (f *File) Truncate(size int64) error {
 
 func (f *File) Duplicate(mode os.FileMode, flag int) billy.File {
 	new := &File{
-		ID: f.ID,
+		ID:       f.ID,
 		ParentID: f.ParentID,
 		FileName: f.Name(),
-		Path: f.Path,
+		Path:     f.Path,
 		Position: f.Position,
 		Content:  f.Content,
 		Mode:     mode,
 		Flag:     flag,
-		storage: f.storage, 
+		storage:  f.storage,
 	}
 
 	if isAppend(flag) {

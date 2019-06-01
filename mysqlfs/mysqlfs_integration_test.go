@@ -12,20 +12,20 @@ import (
 )
 
 func TestCommit(t *testing.T) {
-	err := createTable(connStr)
+	fs, err := New(connStr, tableName)
 
 	if err != nil {
 		t.Error(err)
 	}
 
-	fs, err := New(connStr)
+	fs1, err := New(connStr, tableName+"git")
 
 	if err != nil {
 		t.Error(err)
 	}
 
 	s := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	r, err := git.Init(s, fs)
+	r, err := git.Init(s, fs1)
 
 	if err != nil {
 		t.Fatal(err)
@@ -64,20 +64,20 @@ func TestCommit(t *testing.T) {
 }
 
 func TestLog(t *testing.T) {
-	err := createTable(connStr)
+	fs, err := New(connStr, tableName)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fs, err := New(connStr)
+	fs1, err := New(connStr, tableName+"git")
 
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	s := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	r, err := git.Init(s, fs)
+	r, err := git.Init(s, fs1)
 
 	if err != nil {
 		t.Fatal(err)

@@ -11,27 +11,43 @@ import (
 )
 
 const separator = filepath.Separator
-const fileTableName = "files"
 
 type storage struct {
-	db *sqlx.DB
+	db            *sqlx.DB
+	fileTableName string
 }
 
-func newStorage(connectionStr string) (Storage, error) {
+func newStorage(connectionStr string, folderName string) (Storage, error) {
 	db, err := sqlx.Connect("mysql", connectionStr)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &storage{db: db}, nil
+	_, err = db.Exec(
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s 
+		(id BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, 
+			parentID BIGINT,
+			name varchar(255) NOT NULL, 
+			path varchar(255) NOT NULL, 
+			flag INT, 
+			mode BIGINT, 
+			content LONGBLOB,
+			INDEX (path),
+			INDEX (parentID)`, folderName))
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &storage{db: db, fileTableName: folderName}, nil
 }
 
 func (s *storage) GetFile(path string) (*File, error) {
 	path = clean(path)
 	f := FileDB{}
 
-	err := s.db.Get(&f, fmt.Sprintf("SELECT * FROM %s WHERE path = ?", fileTableName), path)
+	err := s.db.Get(&f, fmt.Sprintf("SELECT * FROM %s WHERE path = ?", s.fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -48,7 +64,7 @@ func (s *storage) GetFileID(path string) (int64, error) {
 	path = clean(path)
 	id := int64(0)
 
-	err := s.db.Get(&id, fmt.Sprintf("SELECT id FROM %s WHERE path = ?", fileTableName), path)
+	err := s.db.Get(&id, fmt.Sprintf("SELECT id FROM %s WHERE path = ?", s.fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -95,7 +111,7 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 		storage:  s,
 	}
 
-	stmtIns, err := s.db.Prepare(fmt.Sprintf("INSERT INTO %s(name,path,mode,flag, content) VALUES(?,?,?,?,?)", fileTableName))
+	stmtIns, err := s.db.Prepare(fmt.Sprintf("INSERT INTO %s(name,path,mode,flag, content) VALUES(?,?,?,?,?)", s.fileTableName))
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +145,7 @@ func (s *storage) Children(path string) ([]*File, error) {
 	path = clean(path)
 	parentID := int64(0)
 
-	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", fileTableName), path)
+	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", s.fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -145,7 +161,7 @@ func (s *storage) ChildrenIds(path string) ([]int64, error) {
 	path = clean(path)
 	parentID := int64(0)
 
-	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", fileTableName), path)
+	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", s.fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -159,7 +175,7 @@ func (s *storage) ChildrenIds(path string) ([]int64, error) {
 
 func (s *storage) ChildrenByFileID(id int64) ([]*File, error) {
 	resDB := []FileDB{}
-	err := s.db.Select(&resDB, fmt.Sprintf("SELECT * FROM %s WHERE parentID=?", fileTableName), id)
+	err := s.db.Select(&resDB, fmt.Sprintf("SELECT * FROM %s WHERE parentID=?", s.fileTableName), id)
 
 	if err != nil {
 		return nil, err
@@ -176,7 +192,7 @@ func (s *storage) ChildrenByFileID(id int64) ([]*File, error) {
 
 func (s *storage) ChildrenIdsByFileID(id int64) ([]int64, error) {
 	res := []int64{}
-	err := s.db.Select(&res, fmt.Sprintf("SELECT id FROM %s WHERE parentID=?", fileTableName), id)
+	err := s.db.Select(&res, fmt.Sprintf("SELECT id FROM %s WHERE parentID=?", s.fileTableName), id)
 
 	if err != nil {
 		return nil, err
@@ -208,11 +224,11 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 		tx := s.db.MustBegin()
-		tx.MustExec(fmt.Sprintf("UPDATE %s SET name=?, path=? WHERE id=?", fileTableName), newName, to, f.ID)
+		tx.MustExec(fmt.Sprintf("UPDATE %s SET name=?, path=? WHERE id=?", s.fileTableName), newName, to, f.ID)
 
 		if len(children) != 0 {
 			for _, c := range children {
-				tx.MustExec(fmt.Sprintf("UPDATE %s SET path=? WHERE id=?", fileTableName), filepath.Join(to, c.FileName), c.ID)
+				tx.MustExec(fmt.Sprintf("UPDATE %s SET path=? WHERE id=?", s.fileTableName), filepath.Join(to, c.FileName), c.ID)
 			}
 		}
 
@@ -230,7 +246,7 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 		if newParentID != 0 {
-			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", s.fileTableName))
 
 			if err != nil {
 				return err
@@ -254,7 +270,7 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 		if newParent == nil {
-			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", s.fileTableName))
 
 			if err != nil {
 				return err
@@ -264,7 +280,7 @@ func (s *storage) RenameFile(from, to string) error {
 
 			_, err = stmt.Exec(newName, to, nil, f.ID)
 		} else {
-			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", fileTableName))
+			stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET name=?, path=?, parentID=? WHERE id=?", s.fileTableName))
 
 			if err != nil {
 				return err
@@ -308,7 +324,7 @@ func (s *storage) RemoveFile(path string) error {
 		return fmt.Errorf("dir: %s contains files", path)
 	}
 
-	stmt, err := s.db.Prepare(fmt.Sprintf("DELETE FROM %s where id=?", fileTableName))
+	stmt, err := s.db.Prepare(fmt.Sprintf("DELETE FROM %s where id=?", s.fileTableName))
 	if err != nil {
 		return err
 	}
@@ -325,7 +341,7 @@ func (s *storage) RemoveFile(path string) error {
 }
 
 func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
-	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET content=? WHERE id=?", fileTableName))
+	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET content=? WHERE id=?", s.fileTableName))
 	if err != nil {
 		return err
 	}
@@ -380,7 +396,7 @@ func (s *storage) CreateParentAddToFile(path string, mode os.FileMode, f *File) 
 
 	f.ParentID = parent.ID
 
-	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET parentID=? WHERE id=?", fileTableName))
+	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET parentID=? WHERE id=?", s.fileTableName))
 	if err != nil {
 		return err
 	}
