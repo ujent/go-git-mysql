@@ -12,13 +12,14 @@ import (
 )
 
 func TestCommit(t *testing.T) {
+
 	fs, err := New(connStr, tableName)
 
 	if err != nil {
 		t.Error(err)
 	}
 
-	fs1, err := New(connStr, tableName+"git")
+	fs1, err := New(connStr, tableName1)
 
 	if err != nil {
 		t.Error(err)
@@ -36,7 +37,7 @@ func TestCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := fs.Create("README.md")
+	f, err := fs1.Create("README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,8 @@ func TestCommit(t *testing.T) {
 
 	fmt.Printf("commit: %s", commit.String())
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
+	dropTable(connStr, tableName1)
 }
 
 func TestLog(t *testing.T) {
@@ -70,7 +72,7 @@ func TestLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fs1, err := New(connStr, tableName+"git")
+	fs1, err := New(connStr, tableName1)
 
 	if err != nil {
 		t.Error(err)
@@ -121,8 +123,10 @@ func TestLog(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	dropTable(connStr)
+	dropTable(connStr, tableName)
+	dropTable(connStr, tableName1)
 }
+
 func writeObj(c *object.Commit) error {
 	fmt.Printf(c.String())
 

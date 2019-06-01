@@ -34,7 +34,7 @@ func newStorage(connectionStr string, folderName string) (Storage, error) {
 			mode BIGINT, 
 			content LONGBLOB,
 			INDEX (path),
-			INDEX (parentID)`, folderName))
+			INDEX (parentID))`, folderName))
 
 	if err != nil {
 		return nil, err

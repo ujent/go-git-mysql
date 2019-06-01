@@ -3,6 +3,7 @@ package mysqlfs
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,9 +12,9 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-var schema = "CREATE TABLE `files` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `parentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `flag` INT, `mode` BIGINT, `content` LONGBLOB)"
-var connStr = "root:secret@/gogit"
-var tableName = "files"
+const connStr = "root:secret@/gogit"
+const tableName = "files"
+const tableName1 = "filesgit"
 
 func TestNewStorage(t *testing.T) {
 	_, err := newStorage(connStr, tableName)
@@ -44,7 +45,7 @@ func TestCreate(t *testing.T) {
 		t.Errorf("Wrong file name: %s", fName)
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestCreateParent(t *testing.T) {
@@ -64,7 +65,7 @@ func TestCreateParent(t *testing.T) {
 		t.Error("Parent wasn't created")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 
 }
 
@@ -95,7 +96,7 @@ func TestOpenFile(t *testing.T) {
 	if f.Name() != bf.Name() {
 		t.Errorf("wrong name: created - %s, got - %s", f.Name(), bf.Name())
 	}
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestStat(t *testing.T) {
@@ -144,7 +145,7 @@ func TestStat(t *testing.T) {
 		t.Errorf("fs Mode: %d, storage Mode: %d", fi1.Mode(), fi2.Mode())
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestTempFile(t *testing.T) {
@@ -164,7 +165,7 @@ func TestTempFile(t *testing.T) {
 		t.Error("File wasn't created")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestReadDir(t *testing.T) {
@@ -206,7 +207,7 @@ func TestReadDir(t *testing.T) {
 		t.Errorf("Wrong file size. Must: %d, has: %d", fStat.Size(), res[0].Size())
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestSymlink(t *testing.T) {
@@ -241,7 +242,7 @@ func TestSymlink(t *testing.T) {
 		t.Error("Symlink wasn't created")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestReadlink(t *testing.T) {
@@ -271,7 +272,7 @@ func TestReadlink(t *testing.T) {
 		t.Errorf("Wrong content. Must: %s, has: %s", data, content)
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestGetFile(t *testing.T) {
@@ -300,7 +301,7 @@ func TestGetFile(t *testing.T) {
 		t.Errorf("Wrong name! Must: %s, has: %s", mustN, hasN)
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestGetFileID(t *testing.T) {
@@ -328,7 +329,7 @@ func TestGetFileID(t *testing.T) {
 		t.Errorf("Wrong id! Must: %d, has: %d", f.ID, id)
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRenameFile1(t *testing.T) {
@@ -371,7 +372,7 @@ func TestRenameFile1(t *testing.T) {
 		t.Error("ParentID wasn't changed!")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRenameFile2(t *testing.T) {
@@ -414,7 +415,7 @@ func TestRenameFile2(t *testing.T) {
 		t.Error("ParentID was changed!")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRenameFile3(t *testing.T) {
@@ -457,7 +458,7 @@ func TestRenameFile3(t *testing.T) {
 		t.Error("ParentID wasn't changed!")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRenameFile4(t *testing.T) {
@@ -491,7 +492,7 @@ func TestRenameFile4(t *testing.T) {
 		t.Error("Wrong path")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 func TestRemoveFile1(t *testing.T) {
 	path := "/dir1/dir2/file1.txt"
@@ -523,7 +524,7 @@ func TestRemoveFile1(t *testing.T) {
 		t.Error("File wasn't deleted")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRemoveFile2(t *testing.T) {
@@ -556,7 +557,7 @@ func TestRemoveFile2(t *testing.T) {
 		t.Error("File wasn't deleted")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestRemoveFile3(t *testing.T) {
@@ -586,7 +587,7 @@ func TestRemoveFile3(t *testing.T) {
 		t.Error(err)
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestChildren1(t *testing.T) {
@@ -613,7 +614,7 @@ func TestChildren1(t *testing.T) {
 		t.Errorf("Wrong children number. Must: %d, has: %d", 1, len(res))
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestChildren2(t *testing.T) {
@@ -648,7 +649,7 @@ func TestChildren2(t *testing.T) {
 		t.Errorf("Wrong children number. Must: %d, has: %d", 2, len(res))
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestChildrenByFileID(t *testing.T) {
@@ -687,7 +688,7 @@ func TestChildrenByFileID(t *testing.T) {
 		t.Errorf("Wrong children number. Must: %d, has: %d", 1, len(res))
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestChildrenIdsByFileID(t *testing.T) {
@@ -743,7 +744,7 @@ func TestChildrenIdsByFileID(t *testing.T) {
 		t.Errorf("Wrong children number. Must: %d, has: %d", 1, len(res))
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
 }
 
 func TestUpdateFileContent(t *testing.T) {
@@ -797,7 +798,47 @@ func TestUpdateFileContent(t *testing.T) {
 		t.Error("File content wasn't changed")
 	}
 
-	dropTable(connStr)
+	dropTable(connStr, tableName)
+}
+
+func TestReadWriteFile(t *testing.T) {
+	fs, err := New(connStr, tableName)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	path := "/dir1/file.txt"
+
+	f, err := fs.Create(path)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	f1, err := fs.Open(path)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	str := "Hell0"
+	_, err = f.Write([]byte(str))
+	if err != nil {
+		t.Error(err)
+	}
+
+	b := make([]byte, 5)
+	_, err = f1.Read(b)
+	if err != nil && err != io.EOF {
+		t.Error(err)
+	}
+
+	if string(b) != str {
+		t.Errorf("Wrong content. Must: %s, has: %s ", str, string(b))
+	}
+
+	dropTable(connStr, tableName)
 }
 
 func createNewFile(path string) (*File, error) {
@@ -826,7 +867,7 @@ func connectToDB(connStr string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func dropTable(connStr string) error {
+func dropTable(connStr, tableName string) error {
 	db, err := sqlx.Connect("mysql", connStr)
 	if err != nil {
 		return err

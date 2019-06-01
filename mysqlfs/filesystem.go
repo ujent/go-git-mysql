@@ -283,6 +283,13 @@ func (f *File) Name() string {
 }
 
 func (f *File) Read(b []byte) (int, error) {
+	f1, err := f.storage.GetFile(f.Path)
+
+	if err != nil {
+		return 0, err
+	}
+
+	f.Content = f1.Content
 	n, err := f.ReadAt(b, f.Position)
 	f.Position += int64(n)
 
@@ -378,6 +385,12 @@ func (f *File) Write(p []byte) (int, error) {
 	n := f.WriteAt(p)
 	f.Position += int64(n)
 
+	err := f.storage.UpdateFileContent(f.ID, f.Content)
+
+	if err != nil {
+		return 0, err
+	}
+
 	return n, nil
 }
 
@@ -388,12 +401,6 @@ func (f *File) Close() error {
 	}
 
 	f.IsClosed = true
-
-	err := f.storage.UpdateFileContent(f.ID, f.Content)
-
-	if err != nil {
-		return err
-	}
 
 	return nil
 }
