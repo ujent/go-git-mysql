@@ -11,7 +11,7 @@ import (
 )
 
 const separator = filepath.Separator
-const fileTableName = "file"
+const fileTableName = "files"
 
 type storage struct {
 	db *sqlx.DB
@@ -414,7 +414,7 @@ func fileDBtoFile(f *FileDB, s *storage) *File {
 		Content:  f.Content,
 		Flag:     f.Flag,
 		Mode:     os.FileMode(f.Mode),
-		storage: s,
+		storage:  s,
 	}
 }
 

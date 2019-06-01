@@ -1,17 +1,17 @@
 package mysqlfs
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-	"bytes"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 )
 
-var schema = "CREATE TABLE `file` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `parentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `flag` INT, `mode` BIGINT, `content` LONGBLOB)"
+var schema = "CREATE TABLE `files` (`id` BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, `parentID` BIGINT,`name` varchar(255) NOT NULL, `path` varchar(255) NOT NULL, `flag` INT, `mode` BIGINT, `content` LONGBLOB)"
 var connStr = "root:secret@/gogit"
 
 func TestNewStorage(t *testing.T) {
@@ -165,7 +165,7 @@ func TestStat(t *testing.T) {
 	dropTable(connStr)
 }
 
-func TestTempFile(t *testing.T){
+func TestTempFile(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -191,7 +191,7 @@ func TestTempFile(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestReadDir(t *testing.T){
+func TestReadDir(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -239,8 +239,7 @@ func TestReadDir(t *testing.T){
 	dropTable(connStr)
 }
 
-
-func TestSymlink(t *testing.T){
+func TestSymlink(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -280,7 +279,7 @@ func TestSymlink(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestReadlink(t *testing.T){
+func TestReadlink(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -565,7 +564,7 @@ func TestRenameFile4(t *testing.T) {
 
 	dropTable(connStr)
 }
-func TestRemoveFile1(t *testing.T){
+func TestRemoveFile1(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -604,7 +603,7 @@ func TestRemoveFile1(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestRemoveFile2(t *testing.T){
+func TestRemoveFile2(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -639,11 +638,11 @@ func TestRemoveFile2(t *testing.T){
 	if getF != nil {
 		t.Error("File wasn't deleted")
 	}
-	
+
 	dropTable(connStr)
 }
 
-func TestRemoveFile3(t *testing.T){
+func TestRemoveFile3(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -678,7 +677,7 @@ func TestRemoveFile3(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestChildren1(t *testing.T){
+func TestChildren1(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -711,7 +710,7 @@ func TestChildren1(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestChildren2(t *testing.T){
+func TestChildren2(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -747,11 +746,11 @@ func TestChildren2(t *testing.T){
 	if len(res) != 2 {
 		t.Errorf("Wrong children number. Must: %d, has: %d", 2, len(res))
 	}
-	
+
 	dropTable(connStr)
 }
 
-func TestChildrenByFileID(t *testing.T){
+func TestChildrenByFileID(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -795,7 +794,7 @@ func TestChildrenByFileID(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestChildrenIdsByFileID(t *testing.T){
+func TestChildrenIdsByFileID(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -856,7 +855,7 @@ func TestChildrenIdsByFileID(t *testing.T){
 	dropTable(connStr)
 }
 
-func TestUpdateFileContent(t *testing.T){
+func TestUpdateFileContent(t *testing.T) {
 	err := createTable(connStr)
 
 	if err != nil {
@@ -960,7 +959,7 @@ func dropTable(connStr string) error {
 	}
 	defer db.Close()
 
-	db.MustExec("DROP TABLE `file`")
+	db.MustExec("DROP TABLE `files`")
 
 	return nil
 }
