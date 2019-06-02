@@ -143,6 +143,28 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 
 func (s *storage) Children(path string) ([]*File, error) {
 	path = clean(path)
+
+	if path == "" || path == string(filepath.Separator) {
+
+		resDB := []FileDB{}
+		err := s.db.Select(&resDB, fmt.Sprintf("SELECT * FROM %s WHERE parentID IS NULL", s.fileTableName))
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return []*File{}, nil
+			}
+			return nil, err
+		}
+
+		res := make([]*File, 0)
+		for _, fDB := range resDB {
+			f := fileDBtoFile(&fDB, s)
+			res = append(res, f)
+		}
+
+		return res, nil
+	}
+
 	parentID := int64(0)
 
 	err := s.db.Get(&parentID, fmt.Sprintf("SELECT id FROM %s WHERE path=?", s.fileTableName), path)

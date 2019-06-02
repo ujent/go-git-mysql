@@ -168,7 +168,7 @@ func TestTempFile(t *testing.T) {
 	dropTable(connStr, tableName)
 }
 
-func TestReadDir(t *testing.T) {
+func TestReadDir1(t *testing.T) {
 	fs, err := New(connStr, tableName)
 
 	if err != nil {
@@ -205,6 +205,37 @@ func TestReadDir(t *testing.T) {
 
 	if res[0].Size() != fStat.Size() {
 		t.Errorf("Wrong file size. Must: %d, has: %d", fStat.Size(), res[0].Size())
+	}
+
+	dropTable(connStr, tableName)
+}
+
+func TestReadDir2(t *testing.T) {
+	fs, err := New(connStr, tableName)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	path := "/dir1/dir2/file1.txt"
+	_, err = createNewFile(path)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	res, err := fs.ReadDir("")
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if res == nil {
+		t.Error("No result")
+	}
+
+	if len(res) != 1 {
+		t.Errorf("Wrong result len. Must: 1, has: %d", len(res))
 	}
 
 	dropTable(connStr, tableName)
