@@ -10,3 +10,5 @@ require (
 	gopkg.in/src-d/go-billy.v4 v4.3.0
 	gopkg.in/src-d/go-git.v4 v4.11.0
 )
+
+replace gopkg.in/src-d/go-git.v4 => github.com/ujent/go-git v0.0.0-20190801043737-fd24d52a153b
