@@ -33,6 +33,7 @@ func newStorage(connectionStr string, folderName string) (Storage, error) {
 			flag INT, 
 			mode BIGINT, 
 			content LONGBLOB,
+			UNIQUE (path),
 			INDEX (path),
 			INDEX (parentID))`, folderName))
 
