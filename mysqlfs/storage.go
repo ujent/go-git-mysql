@@ -262,6 +262,9 @@ func (s *storage) RenameFile(from, to string) error {
 		}
 
 	} else {
+
+		s.RemoveFile(to)
+
 		newParentID, err := s.GetFileID(filepath.Dir(to))
 
 		if err != nil {
