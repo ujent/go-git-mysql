@@ -2,6 +2,7 @@
 package mysqlfs
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -21,12 +22,12 @@ type Mysqlfs struct {
 }
 
 //New creates an instance of billy.Filesystem
-func New(connectionStr string, folderName string) (billy.Filesystem, error) {
+func New(db *sql.DB, folderName string) (billy.Filesystem, error) {
 	if folderName == "" {
 		return nil, errors.New("Folder name can't be empty")
 	}
 
-	storage, err := newStorage(connectionStr, folderName)
+	storage, err := newStorage(db, folderName)
 
 	if err != nil {
 		return nil, err

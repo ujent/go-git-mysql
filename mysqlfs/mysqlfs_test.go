@@ -2,6 +2,7 @@ package mysqlfs
 
 import (
 	"bytes"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -16,8 +17,23 @@ const connStr = "root:secret@/gogit"
 const tableName = "files"
 const tableName1 = "filesgit"
 
+func createDB(connStr string) (*sql.DB, error) {
+	db, err := sqlx.Connect("mysql", connStr)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return db.DB, nil
+}
+
 func TestNewStorage(t *testing.T) {
-	_, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -25,7 +41,12 @@ func TestNewStorage(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -49,7 +70,13 @@ func TestCreate(t *testing.T) {
 }
 
 func TestCreateParent(t *testing.T) {
-	s, err := newStorage(connStr, tableName)
+
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -70,7 +97,12 @@ func TestCreateParent(t *testing.T) {
 }
 
 func TestOpenFile(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -101,13 +133,18 @@ func TestOpenFile(t *testing.T) {
 
 func TestStat(t *testing.T) {
 
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -149,7 +186,12 @@ func TestStat(t *testing.T) {
 }
 
 func TestTempFile(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -169,7 +211,12 @@ func TestTempFile(t *testing.T) {
 }
 
 func TestReadDir1(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -211,7 +258,12 @@ func TestReadDir1(t *testing.T) {
 }
 
 func TestReadDir2(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -243,7 +295,12 @@ func TestReadDir2(t *testing.T) {
 
 func TestSymlink(t *testing.T) {
 
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -257,7 +314,7 @@ func TestSymlink(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -278,7 +335,12 @@ func TestSymlink(t *testing.T) {
 
 func TestReadlink(t *testing.T) {
 
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -314,7 +376,12 @@ func TestGetFile(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -344,7 +411,12 @@ func TestGetFileID(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -372,7 +444,12 @@ func TestRenameFile1(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -415,7 +492,12 @@ func TestRenameFile2(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -458,7 +540,12 @@ func TestRenameFile3(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -501,7 +588,12 @@ func TestRenameFile4(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -533,7 +625,12 @@ func TestRemoveFile1(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -566,7 +663,12 @@ func TestRemoveFile2(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -600,7 +702,12 @@ func TestRemoveFile3(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -629,7 +736,12 @@ func TestChildren1(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -664,7 +776,12 @@ func TestChildren2(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -692,7 +809,12 @@ func TestChildrenByFileID(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -731,7 +853,12 @@ func TestChildrenIdsByFileID(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -787,7 +914,12 @@ func TestUpdateFileContent(t *testing.T) {
 		t.Error(err)
 	}
 
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -833,7 +965,12 @@ func TestUpdateFileContent(t *testing.T) {
 }
 
 func TestReadWriteFile(t *testing.T) {
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
@@ -873,7 +1010,12 @@ func TestReadWriteFile(t *testing.T) {
 }
 
 func createNewFile(path string) (*File, error) {
-	s, err := newStorage(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := newStorage(db, tableName)
 
 	if err != nil {
 		return nil, err

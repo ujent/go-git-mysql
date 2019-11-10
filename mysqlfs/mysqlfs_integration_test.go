@@ -13,13 +13,18 @@ import (
 
 func TestCommit(t *testing.T) {
 
-	fs, err := New(connStr, tableName)
+	db, err := createDB(connStr)
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs, err := New(db, tableName)
 
 	if err != nil {
 		t.Error(err)
 	}
 
-	fs1, err := New(connStr, tableName1)
+	fs1, err := New(db, tableName1)
 
 	if err != nil {
 		t.Error(err)
@@ -66,13 +71,18 @@ func TestCommit(t *testing.T) {
 }
 
 func TestLog(t *testing.T) {
-	fs, err := New(connStr, tableName)
-
+	db, err := createDB(connStr)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
-	fs1, err := New(connStr, tableName1)
+	fs, err := New(db, tableName)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	fs1, err := New(db, tableName1)
 
 	if err != nil {
 		t.Error(err)
@@ -90,7 +100,7 @@ func TestLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f, err := fs.Create("README.md")
+	f, err := fs1.Create("README.md")
 	if err != nil {
 		t.Fatal(err)
 	}

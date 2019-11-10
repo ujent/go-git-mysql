@@ -17,14 +17,11 @@ type storage struct {
 	fileTableName string
 }
 
-func newStorage(connectionStr string, folderName string) (Storage, error) {
-	db, err := sqlx.Connect("mysql", connectionStr)
+func newStorage(dbPool *sql.DB, folderName string) (Storage, error) {
 
-	if err != nil {
-		return nil, err
-	}
+	db := sqlx.NewDb(dbPool, "mysql")
 
-	_, err = db.Exec(
+	_, err := db.Exec(
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s 
 		(id BIGINT AUTO_INCREMENT NOT NULL PRIMARY KEY, 
 			parentID BIGINT,
