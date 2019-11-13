@@ -939,7 +939,7 @@ func TestUpdateFileContent(t *testing.T) {
 		t.Error(err)
 	}
 
-	if bytes.Equal(f.Content, f1.Content) {
+	if bytes.Equal(*f.Content, *f1.Content) {
 		t.Error("File content wasn't changed")
 	}
 
@@ -957,7 +957,7 @@ func TestUpdateFileContent(t *testing.T) {
 		t.Error(err)
 	}
 
-	if bytes.Equal(f.Content, f2.Content) {
+	if bytes.Equal(*f.Content, *f2.Content) {
 		t.Error("File content wasn't changed")
 	}
 

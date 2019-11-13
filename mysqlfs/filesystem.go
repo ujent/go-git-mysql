@@ -93,7 +93,7 @@ func (fs *Mysqlfs) resolveLink(fullpath string, f *File) (target string, isLink 
 		return fullpath, false
 	}
 
-	target = string(f.Content)
+	target = string(*f.Content)
 	if !isAbs(target) {
 		target = fs.Join(filepath.Dir(fullpath), target)
 	}
@@ -266,7 +266,7 @@ func (fs *Mysqlfs) Readlink(link string) (string, error) {
 		}
 	}
 
-	return string(f.Content), nil
+	return string(*f.Content), nil
 }
 
 // Capabilities implements the Capable interface.
@@ -284,13 +284,7 @@ func (f *File) Name() string {
 }
 
 func (f *File) Read(b []byte) (int, error) {
-	f1, err := f.storage.GetFile(f.Path)
 
-	if err != nil {
-		return 0, err
-	}
-
-	f.Content = f1.Content
 	n, err := f.ReadAt(b, f.Position)
 	f.Position += int64(n)
 
@@ -313,7 +307,7 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 		return 0, errors.New("read not supported")
 	}
 
-	size := int64(len(f.Content))
+	size := int64(len(*f.Content))
 	if off >= size {
 		return 0, io.EOF
 	}
@@ -323,7 +317,7 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 		l = size - off
 	}
 
-	btr := f.Content[off : off+l]
+	btr := (*f.Content)[off : off+l]
 	if len(btr) < len(b) {
 		err = io.EOF
 	}
@@ -334,17 +328,17 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 
 func (f *File) WriteAt(p []byte) int {
 	off := f.Position
-	prev := len(f.Content)
+	prev := len(*f.Content)
 
 	diff := int(off) - prev
 
 	if diff > 0 {
-		f.Content = append(f.Content, make([]byte, diff)...)
+		*f.Content = append(*f.Content, make([]byte, diff)...)
 	}
 
-	f.Content = append(f.Content[:off], p...)
-	if len(f.Content) < prev {
-		f.Content = f.Content[:prev]
+	*f.Content = append((*f.Content)[:off], p...)
+	if len(*f.Content) < prev {
+		*f.Content = (*f.Content)[:prev]
 	}
 
 	return len(p)
@@ -368,7 +362,7 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekStart:
 		f.Position = offset
 	case io.SeekEnd:
-		f.Position = int64(len(f.Content)) + offset
+		f.Position = int64(len(*f.Content)) + offset
 	}
 
 	return f.Position, nil
@@ -386,12 +380,6 @@ func (f *File) Write(p []byte) (int, error) {
 	n := f.WriteAt(p)
 	f.Position += int64(n)
 
-	err := f.storage.UpdateFileContent(f.ID, f.Content)
-
-	if err != nil {
-		return 0, err
-	}
-
 	return n, nil
 }
 
@@ -401,6 +389,24 @@ func (f *File) Close() error {
 		return os.ErrClosed
 	}
 
+	if isReadAndWrite(f.Flag) || isWriteOnly(f.Flag) {
+		err := f.storage.UpdateFileContent(f.ID, *f.Content)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	key := createCacheKey(f.storage.fileTableName, f.ID)
+	content, ok := f.storage.files[key]
+
+	if ok {
+		content.count--
+		if content.count == 0 {
+			delete(f.storage.files, key)
+		}
+	}
+
 	f.IsClosed = true
 
 	return nil
@@ -408,10 +414,10 @@ func (f *File) Close() error {
 
 // Truncate the file
 func (f *File) Truncate(size int64) error {
-	if size < int64(len(f.Content)) {
-		f.Content = f.Content[:size]
-	} else if more := int(size) - len(f.Content); more > 0 {
-		f.Content = append(f.Content, make([]byte, more)...)
+	if size < int64(len(*f.Content)) {
+		*f.Content = (*f.Content)[:size]
+	} else if more := int(size) - len(*f.Content); more > 0 {
+		*f.Content = append(*f.Content, make([]byte, more)...)
 	}
 
 	return nil
@@ -431,11 +437,11 @@ func (f *File) Duplicate(mode os.FileMode, flag int) billy.File {
 	}
 
 	if isAppend(flag) {
-		new.Position = int64(len(new.Content))
+		new.Position = int64(len(*new.Content))
 	}
 
 	if isTruncate(flag) {
-		new.Content = make([]byte, 0)
+		*new.Content = make([]byte, 0)
 	}
 
 	return new
@@ -446,7 +452,7 @@ func (f *File) Stat() (os.FileInfo, error) {
 	return &FileInfo{
 		FileName: f.Name(),
 		FileMode: f.Mode,
-		FileSize: int64(len(f.Content)),
+		FileSize: int64(len(*f.Content)),
 	}, nil
 }
 

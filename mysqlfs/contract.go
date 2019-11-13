@@ -37,7 +37,7 @@ type File struct {
 	ParentID int64
 	FileName string
 	Path     string
-	Content  []byte
+	Content  *[]byte
 	Position int64
 	Flag     int
 	Mode     os.FileMode

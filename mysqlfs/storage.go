@@ -15,6 +15,13 @@ const separator = filepath.Separator
 type storage struct {
 	db            *sqlx.DB
 	fileTableName string
+
+	files map[string]*fileContent
+}
+
+type fileContent struct {
+	bytes []byte
+	count int
 }
 
 func newStorage(dbPool *sql.DB, folderName string) (Storage, error) {
@@ -38,14 +45,14 @@ func newStorage(dbPool *sql.DB, folderName string) (Storage, error) {
 		return nil, err
 	}
 
-	return &storage{db: db, fileTableName: folderName}, nil
+	return &storage{db: db, fileTableName: folderName, files: make(map[string]*fileContent)}, nil
 }
 
 func (s *storage) GetFile(path string) (*File, error) {
 	path = clean(path)
 	f := FileDB{}
 
-	err := s.db.Get(&f, fmt.Sprintf("SELECT * FROM %s WHERE path = ?", s.fileTableName), path)
+	err := s.db.Get(&f, fmt.Sprintf("SELECT id, parentID, name, path, flag, mode FROM %s WHERE path = ?", s.fileTableName), path)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -55,7 +62,7 @@ func (s *storage) GetFile(path string) (*File, error) {
 		return nil, err
 	}
 
-	return fileDBtoFile(&f, s), nil
+	return fileDBtoFile(&f, s)
 }
 
 func (s *storage) GetFileID(path string) (int64, error) {
@@ -100,10 +107,12 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 		Flag:    flag,
 	}
 
+	content := &fileContent{bytes: fDB.Content, count: 1}
+
 	f = &File{
 		FileName: fDB.Name,
 		Path:     fDB.Path,
-		Content:  fDB.Content,
+		Content:  &content.bytes,
 		Mode:     mode,
 		Flag:     fDB.Flag,
 		storage:  s,
@@ -129,6 +138,8 @@ func (s *storage) NewFile(path string, mode os.FileMode, flag int) (*File, error
 	}
 
 	f.ID = id
+	key := createCacheKey(s.fileTableName, f.ID)
+	f.storage.files[key] = content
 
 	err = s.CreateParentAddToFile(path, mode, f)
 
@@ -156,7 +167,12 @@ func (s *storage) Children(path string) ([]*File, error) {
 
 		res := make([]*File, 0)
 		for _, fDB := range resDB {
-			f := fileDBtoFile(&fDB, s)
+
+			f, err := fileDBtoFile(&fDB, s)
+			if err != nil {
+				return nil, err
+			}
+
 			res = append(res, f)
 		}
 
@@ -202,8 +218,14 @@ func (s *storage) ChildrenByFileID(id int64) ([]*File, error) {
 	}
 
 	res := make([]*File, 0)
+
 	for _, fDB := range resDB {
-		f := fileDBtoFile(&fDB, s)
+
+		f, err := fileDBtoFile(&fDB, s)
+		if err != nil {
+			return nil, err
+		}
+
 		res = append(res, f)
 	}
 
@@ -363,6 +385,17 @@ func (s *storage) RemoveFile(path string) error {
 	return nil
 }
 
+func (s *storage) GetFileContent(fileID int64) ([]byte, error) {
+	var content []byte
+
+	err := s.db.Get(&content, fmt.Sprintf("SELECT content FROM %s WHERE id = ?", s.fileTableName), fileID)
+	if err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
 func (s *storage) UpdateFileContent(fileID int64, content []byte) error {
 	stmt, err := s.db.Prepare(fmt.Sprintf("UPDATE %s SET content=? WHERE id=?", s.fileTableName))
 	if err != nil {
@@ -435,9 +468,9 @@ func (s *storage) CreateParentAddToFile(path string, mode os.FileMode, f *File) 
 	return nil
 }
 
-func fileDBtoFile(f *FileDB, s *storage) *File {
+func fileDBtoFile(f *FileDB, s *storage) (*File, error) {
 	if f == nil {
-		return nil
+		return nil, nil
 	}
 
 	var parID int64
@@ -445,16 +478,38 @@ func fileDBtoFile(f *FileDB, s *storage) *File {
 		parID = f.ParentID.Int64
 	}
 
-	return &File{
+	file := &File{
 		ID:       f.ID,
 		FileName: f.Name,
 		ParentID: parID,
 		Path:     f.Path,
-		Content:  f.Content,
-		Flag:     f.Flag,
-		Mode:     os.FileMode(f.Mode),
-		storage:  s,
+		//Content:  &f.Content,
+		Flag:    f.Flag,
+		Mode:    os.FileMode(f.Mode),
+		storage: s,
 	}
+
+	key := createCacheKey(s.fileTableName, f.ID)
+
+	content, ok := s.files[key]
+	if ok {
+		file.Content = &content.bytes
+		content.count++
+	} else {
+		bytes, err := s.GetFileContent(f.ID)
+		if err != nil {
+			return nil, err
+		}
+		content := &fileContent{bytes: bytes, count: 1}
+		s.files[key] = content
+		file.Content = &content.bytes
+	}
+
+	return file, nil
+}
+
+func createCacheKey(table string, id int64) string {
+	return fmt.Sprintf("%s%d", table, id)
 }
 
 func clean(path string) string {
